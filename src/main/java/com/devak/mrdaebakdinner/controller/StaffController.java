@@ -140,7 +140,7 @@ public class StaffController {
         model.addAttribute("inventoryList", inventoryService.findAllInventory());
         return "staff/inventory";
     }
-    // TODO: 한 번 increase요청하면 "수량선택"이 다시 1로 세팅되는 문제 w. inventory.html
+
     @PostMapping("/staff/inventory/increase")
     public String increaseStock(@RequestParam Long itemId,
                                 @RequestParam int amount) {
