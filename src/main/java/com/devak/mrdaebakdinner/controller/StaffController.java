@@ -34,7 +34,7 @@ public class StaffController {
     @GetMapping("/staff")
     public String showStaffInterface(HttpSession session) {
         Object staff = session.getAttribute("loggedInStaff");
-        if (staff != null) { // 이미 staff session이 있으면 바로 role애 맞는 화면으로
+        if (staff != null) { // 이미 staff session이 있으면 바로 role에 맞는 화면으로
             return "redirect:/staff/" + ((StaffSessionDTO) staff).getPosition();
         }
         return "staff/staff";
