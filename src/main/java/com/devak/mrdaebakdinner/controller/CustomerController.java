@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
@@ -114,7 +113,7 @@ public class CustomerController {
         try { // 입력값이 Valid하다면, 회원가입 시도
             customerService.signUp(customerSignUpDTO);
             return "redirect:/customer";
-        } catch (DuplicateLoginIdException | DataAccessException e) {
+        } catch (DuplicateLoginIdException e) {
             // 회원가입 실패하면 errMsg 출력
             model.addAttribute("signUpErrMsg", e.getMessage());
             return "customer/signup";

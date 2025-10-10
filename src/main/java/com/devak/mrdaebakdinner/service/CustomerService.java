@@ -5,13 +5,11 @@ import com.devak.mrdaebakdinner.dto.CustomerSessionDTO;
 import com.devak.mrdaebakdinner.dto.CustomerSignUpDTO;
 import com.devak.mrdaebakdinner.entity.CustomerEntity;
 import com.devak.mrdaebakdinner.exception.CustomerNotFoundException;
-import com.devak.mrdaebakdinner.exception.DatabaseException;
 import com.devak.mrdaebakdinner.exception.DuplicateLoginIdException;
 import com.devak.mrdaebakdinner.exception.IncorrectPasswordException;
 import com.devak.mrdaebakdinner.mapper.CustomerMapper;
 import com.devak.mrdaebakdinner.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -38,11 +36,8 @@ public class CustomerService {
         if (customerRepository.findByLoginId(customerSignUpDTO.getLoginId()).isPresent()) {
             throw new DuplicateLoginIdException("이미 존재하는 사용자입니다.");
         }
-        try { // 존재하지 않는 ID면 회원가입 시도
-            customerRepository.save(CustomerMapper.toCustomerEntity(customerSignUpDTO));
-        } catch (DataAccessException e) {
-            throw new DatabaseException("DB 처리 중 오류", e);
-        }
+        // 존재하지 않는 ID면 회원가입 시도
+        customerRepository.save(CustomerMapper.toCustomerEntity(customerSignUpDTO));
     }
 
 }
