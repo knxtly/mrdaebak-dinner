@@ -42,7 +42,7 @@ public class AiOrderController {
     // 대화 API
     @PostMapping("/ai-chat-order")
     public ResponseEntity<?> aiChatOrder(@RequestBody Map<String, String> payload) {
-        String userInput = payload.get("text");
+        String userInput = payload.get("userInput");
 
         // 오류 처리
         if (openaiApiKey == null || openaiApiKey.isBlank()) {

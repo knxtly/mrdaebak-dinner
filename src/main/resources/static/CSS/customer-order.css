@@ -421,3 +421,31 @@ label {
     color: blue;
     white-space: pre-line;
 }
+
+/* --- 채팅 구역 --- */
+.chat-container {
+    border: 1px solid #ccc;
+    padding: 10px;
+    max-height: 250px;
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.chat-message {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    word-wrap: break-word;
+}
+
+.user-message {
+    background: #e3f2fd;
+    text-align: right;
+}
+
+.bot-message {
+    background: #f5f5f5;
+    text-align: left;
+}
