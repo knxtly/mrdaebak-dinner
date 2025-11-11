@@ -15,5 +15,4 @@ public class AiOrderDTO {
     private Map<String, Integer> items; // 주문 아이템과 수량
     private String deliveryAddress;     // 배송 주소
     private String cardNumber;          // 결제 카드 번호 (숫자 4-16자)
-    private String comment;             // 주문 파싱 이유/추천 문구 (50자 이내)
 }
