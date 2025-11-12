@@ -14,5 +14,5 @@ public class AiOrderDTO {
     private String style;               // SIMPLE, GRAND, DELUXE
     private Map<String, Integer> items; // 주문 아이템과 수량
     private String deliveryAddress;     // 배송 주소
-    private String cardNumber;          // 결제 카드 번호 (숫자 4-16자)
+    private String cardNumber;          // 결제 카드 번호
 }

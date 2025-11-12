@@ -169,8 +169,19 @@
             return;
         }
         voiceMessage.textContent = "답변 생성 중...";
+        // 다음 입력 준비
+        voiceInput.value = "";
 
-        // ... voiceForm submit 이벤트 리스너 내부 try 블록
+        // 사용자 입력 추가
+        const userMsg = document.createElement("div");
+        userMsg.classList.add("chat-message", "user-message");
+        userMsg.textContent = userInput;
+        chatContainer.appendChild(userMsg);
+
+        // 스크롤 하단으로
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        // AI 응답 요청 & 처리
         try {
             const response = await fetch("/customer/ai-chat-order", {
                 method: "POST",
@@ -178,28 +189,23 @@
                 body: JSON.stringify({ userInput }),
             });
             const data = await response.json();
+            // { "status": "CONTINUE", "message": "..." }
+            // { "status": "ERROR", "message": "..." }
+            // { "status": "DONE", "menu": "...", "style": "...", "items": "...", ... }
 
             // data.status === "CONTINUE"
             if (data.status === "CONTINUE") {
-                // 사용자 입력 추가
-                const userMsg = document.createElement("div");
-                userMsg.classList.add("chat-message", "user-message");
-                userMsg.textContent = userInput;
-                chatContainer.appendChild(userMsg);
-
                 // AI 답변 추가
                 const botMsg = document.createElement("div");
                 botMsg.classList.add("chat-message", "bot-message");
                 botMsg.textContent = data.message;
                 chatContainer.appendChild(botMsg);
 
-                // 스크롤 항상 하단으로
+                // 스크롤 하단으로
                 chatContainer.scrollTop = chatContainer.scrollHeight;
 
-                // 다음 입력 준비
-                voiceInput.value = "";
                 voiceMessage.textContent = "답변 완료";
-                return data.message;
+                return;
             }
 
             // data.status === "DONE"
@@ -231,10 +237,18 @@
                     data.deliveryAddress || "";
                 document.getElementById("cardNumber").value = data.cardNumber || "";
 
-                voiceMessage.textContent = "주문 폼이 자동으로 채워졌습니다.";
+                // 마지막 AI 답변 추가
+                const botMsg = document.createElement("div");
+                botMsg.classList.add("chat-message", "bot-message");
+                botMsg.textContent = data.message;
+                chatContainer.appendChild(botMsg);
+
+                voiceMessage.textContent = "주문 폼이 자동으로 채워졌습니다";
+
+                // (선택) 대화 기록 삭제
             }
 
-            // data.status === "error"
+            // data.status === "ERROR"
             else {
                 voiceMessage.textContent = "Error: " + data.message;
                 return;
