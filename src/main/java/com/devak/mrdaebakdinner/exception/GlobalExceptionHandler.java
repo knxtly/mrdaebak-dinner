@@ -13,11 +13,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
     }
 
-    @ExceptionHandler(DatabaseException.class)
-    public ResponseEntity<String> handleDatabaseException(DatabaseException e) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
-    }
-
     @ExceptionHandler(IncorrectPasswordException.class)
     public ResponseEntity<String> handleIncorrectPasswordException(IncorrectPasswordException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());

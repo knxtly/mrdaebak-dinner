@@ -72,6 +72,9 @@ public class OrderController {
         try {
             // 주문처리
             OrderHistoryDTO placedOrder = orderService.placeOrder(orderDTO, orderItemDTO, customerSessionDTO);
+            // 결제
+            makePayment();
+
             redirectAttributes.addFlashAttribute("placedOrder", placedOrder);
             return "redirect:/customer/orders/success";
         } catch (IllegalStateException e) {
@@ -85,6 +88,10 @@ public class OrderController {
             model.addAttribute("insufficientItems", e.getInsufficientItems());
             return "customer/order";
         }
+    }
+
+    private void makePayment() {
+        return;
     }
 
     @GetMapping("/customer/orders/success")

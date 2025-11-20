@@ -1,6 +1,6 @@
 package com.devak.mrdaebakdinner.controller;
 
-import com.devak.mrdaebakdinner.dto.AiOrderDTO;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +9,9 @@ import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,153 +27,306 @@ public class AiOrderController {
     @Value("${openai.api-key}")
     private String openaiApiKey;
 
-    // 아이템 키 목록
-    private static final List<String> ITEM_KEYS = List.of(
-            "wine", "steak", "coffee_cup", "coffee_pot",
-            "salad", "eggscramble", "bacon", "bread",
-            "baguette", "champagne"
-    );
+    // conversation 저장소
+    private static final Map<String, List<Map<String, String>>> conversationMap = new HashMap<>();
 
-    /**
-     * 자연어 주문 → OpenAI API 호출 → Structured JSON → DTO 변환
-     */
-    @PostMapping("/ai-parse-order")
-    public ResponseEntity<?> parseOrder(@RequestBody Map<String, String> payload) {
+    // API의 BASE_URL
+    private static final String BASE_URL = "https://api.openai.com/v1";
+
+    // 대화 API
+    @PostMapping("/ai-chat-order")
+    public ResponseEntity<?> aiChatOrder(@RequestBody Map<String, String> payload) {
+        String userInput = payload.get("userInput");
+
+        // 오류 처리
         if (openaiApiKey == null || openaiApiKey.isBlank()) {
-            return ResponseEntity.status(500).body(Map.of("error", "OpenAI API Key가 설정되지 않았습니다."));
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "ERROR",
+                    "message", "OpenAI API Key가 설정되지 않았습니다."
+            ));
         }
-
-        String userInput = payload.get("text");
-        String url = "https://api.openai.com/v1/chat/completions";
-
+        if (userInput == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "ERROR",
+                    "message", "사용자 입력이 누락되었습니다."
+            ));
+        }
         try {
-            // ===== JSON Schema 정의 =====
-            Map<String, Object> jsonSchema = Map.of(
-                    "type", "object",
-                    "title", "Order",
-                    "description", "레스토랑 주문 스키마",
-                    "properties", Map.of(
-                            "menu", Map.of(
-                                    "type", "string",
-                                    "enum", List.of("VALENTINE", "FRENCH", "ENGLISH", "CHAMPAGNE")
-                            ),
-                            "style", Map.of(
-                                    "type", "string",
-                                    "enum", List.of("SIMPLE", "GRAND", "DELUXE")
-                            ),
-                            "items", Map.of(
-                                    "type", "object",
-                                    "properties", ITEM_KEYS.stream().collect(HashMap::new,
-                                            (m, k) -> m.put(k, Map.of(
-                                                    "type", "integer", "minimum", 0
-                                            )),
-                                            HashMap::putAll),
-                                    "additionalProperties", false
-                            ),
-                            "deliveryAddress", Map.of("type", "string", "maxLength", 50),
-                            "cardNumber", Map.of("type", "string", "description", "카드번호(1234-1234 등)"),
-                            "comment", Map.of("type", "string", "maxLength", 100)
-                    ),
-                    "additionalProperties", false
-            );
+            // conversation 찾기
+            String conversationId = conversationMap.isEmpty()
+                    ? null
+                    : conversationMap.keySet().iterator().next();
 
-            // ===== response_format 정의 =====
-            Map<String, Object> responseFormat = Map.of(
-                    "type", "json_schema",
-                    "json_schema", Map.of(
-                            "name", "order",
-                            "schema", jsonSchema
-                    )
-            );
-
-            // ===== 프롬프트 정의 =====
-            String systemPrompt =
-                    """
-                            당신은 레스토랑 주문 파서입니다. 사용자의 자연어 주문을 받아 JSON Schema에 맞춰 정확히 반환하세요.
-                            
-                            규칙:
-                            1. 사용자는 디너의 종류(menu)와 서빙 스타일(style)을 지정할 수 있습니다.
-                            2. 디너의 종류와 기본 세트 구성은 다음과 같습니다:
-                               - VALENTINE: wine 1, steak 1
-                               - FRENCH: coffee_cup 1, wine 1, salad 1, steak 1
-                               - ENGLISH: eggscramble 1, bacon 1, bread 1, steak 1
-                               - CHAMPAGNE: champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1
-                            3. 서빙 스타일은 SIMPLE, GRAND, DELUXE입니다.
-                            4. 사용자가 style을 지정하지 않은 경우, CHAMPAGNE은 'GRAND' 로, VALENTINE, FRENCH, ENGLISH는 'SIMPLE' 로 설정하세요.
-                               - "CHAMPAGNE" 디너는 "SIMPLE" 스타일과 함께 주문할 수 없습니다.
-                               - 만약 사용자가 CHAMPAGNE + SIMPLE을 요청하면, menu, style, items를 비우고 comment에 안내 문구를 작성하세요.
-                            5. item 추가 요청이 있으면 해당 아이템 수량을 사용자가 원하는 만큼만 늘리세요.
-                            6. item 추가 요청에서 수량이 지정되지 않은 경우 1개만 늘리세요.
-                               - 아이템이 기본 세트에 없으면 새로 추가합니다.
-                            7. item 삭제 요청이 있으면 해당 아이템 수량을 사용자가 원하는 만큼만 줄이세요.
-                               - 수량이 명시되지 않은 경우 해당 key를 0으로 설정하세요.
-                               - 기본 세트에 없는 아이템이면 변경하지 마세요.
-                            8. 'bread'와 'baguette'는 다른 아이템입니다.
-                            9. 추천 요청이 있으면, 기본 세트 위에서 items를 증감하여 JSON Schema에 맞게 반환하고, comment에 추천 이유를 작성하세요.
-                            10. 모든 items 수량은 정수이며 0 이상이어야 합니다.
-                            11. JSON Schema의 items는 반드시 ITEM_KEYS 모든 키를 포함하세요. 없는 키는 0으로 채웁니다.
-                            12. 입력이 부적절하거나 요청이 없는 필드는 비워두고 comment에 안내 문구를 작성하세요.
-                            13. comment 작성 예시: 여자 친구와의 특별한 저녁을 위해 발렌타인 디너를 추천합니다. 와인과 스테이크가 포함되어 있어 로맨틱한 분위기를 연출할 수 있습니다.
-                            """;
-            String userPrompt = "사용자 입력: " + userInput;
-
-            // ===== 요청 본문 =====
-            Map<String, Object> requestBody = Map.of(
-                    "model", "gpt-4o-mini",
-                    "messages", List.of(
-                            Map.of("role", "system", "content", systemPrompt),
-                            Map.of("role", "user", "content", userPrompt)
-                    ),
-                    "temperature", 0,
-                    "response_format", responseFormat
-            );
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(openaiApiKey);
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-
-            if (response.getBody() == null) {
-                return ResponseEntity.badRequest().body(Map.of("error", "AI 응답이 없습니다."));
+            // conversationId가 없으면 생성
+            if (conversationId == null) {
+                conversationId = createConversation().path("id").asText();
+                conversationMap.put(conversationId, new ArrayList<>());
             }
 
-            // ===== 응답 파싱 =====
-            JsonNode root = objectMapper.readTree(response.getBody());
-            JsonNode messageContent = root.path("choices").get(0).path("message").path("content");
+            /*
+             * response 생성
+             * model response 객체의 구조
+             * https://platform.openai.com/docs/api-reference/responses/create
+             */
+            JsonNode responseNode = createResponse(conversationId, userInput);
+            JsonNode contentNode = responseNode.path("output").get(0).path("content").get(0);
+            String type = contentNode.path("type").asText(); // "refusal" or "output_text"
 
-            AiOrderDTO dto;
-            if (messageContent.isTextual()) {
-                dto = objectMapper.readValue(messageContent.asText(), AiOrderDTO.class);
-            } else {
-                dto = objectMapper.treeToValue(messageContent, AiOrderDTO.class);
-            }
+            // AI가 답변을 거부
+            if ("refusal".equals(type)) { // "type": "refusal" 일 때
+                return ResponseEntity.status(500).body(Map.of(
+                        "status", "ERROR",
+                        "message", "AI가 답변을 거부했습니다."
+                ));
+            } else if ("output_text".equals(type)) {
+                // "type": "output_text" 일 때
+                String jsonText = contentNode.path("text").asText(); // json답변 (String) status, message가지고있음
+                String status = objectMapper.readTree(jsonText).get("status").asText();
+                String message = objectMapper.readTree(jsonText).get("message").asText();
 
-            // ===== 아이템 수량 파싱 =====
-            Map<String, Integer> validatedItems = new HashMap<>();
-            for (String key : ITEM_KEYS) {
-                Integer val = null;
-                if (dto.getItems() != null) {
-                    val = dto.getItems().get(key);
+                // history 업데이트: { user-input + assistant-reply }
+                List<Map<String, String>> history = conversationMap.get(conversationId);
+                history.add(Map.of(
+                        "user", userInput,
+                        "assistant", message
+                ));
+
+                // "DONE"을 반환했을 때
+                if ("DONE".equalsIgnoreCase(status)) {
+                    // order 추출
+                    String jsonOrder = createJsonOrder(conversationId)
+                            .path("output").get(0)
+                            .path("content").get(0)
+                            .path("text").asText();
+                    // jsonOrder로부터 menu, style, items, deliveryAddress, cardNumber, reservationTime 파싱
+                    JsonNode order = objectMapper.readTree(jsonOrder);
+                    String menu = order.path("menu").asText();
+                    String style = order.path("style").asText();
+                    String items = order.path("items").toString();
+                    String deliveryAddress = order.path("deliveryAddress").asText();
+                    String cardNumber = order.path("cardNumber").asText();
+                    String reservationTime = order.path("reservationTime").asText();
+
+                    // conversation 삭제
+                    deleteConversation(conversationId);
+                    conversationMap.remove(conversationId);
+
+                    return ResponseEntity.ok(Map.of(
+                            "status", "DONE",
+                            "menu", menu,
+                            "style", style,
+                            "items", objectMapper.readTree(items),
+                            "deliveryAddress", deliveryAddress,
+                            "cardNumber", cardNumber,
+                            "reservationTime", reservationTime,
+                            "message", message
+                    ));
                 }
-                // null 또는 음수면 0으로 처리
-                validatedItems.put(key, (val != null && val >= 0) ? val : 0);
+
+                // "CONTINUE"를 반환했을 때 message(와 history) 반환
+                if ("CONTINUE".equalsIgnoreCase(status)) {
+                    return ResponseEntity.ok(Map.of(
+                            "status", "CONTINUE",
+                            "message", message
+                    ));
+                }
             }
-            dto.setItems(validatedItems);
-
-
-            if (dto.getMenu() == null) dto.setMenu("");
-            if (dto.getStyle() == null) dto.setStyle("");
-            if (dto.getItems() == null) dto.setItems(new HashMap<>());
-            if (dto.getDeliveryAddress() == null) dto.setDeliveryAddress("");
-            if (dto.getCardNumber() == null) dto.setCardNumber("");
-            if (dto.getComment() == null) dto.setComment("");
-
-            return ResponseEntity.ok(dto);
-
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "AI 처리 오류" + e.getMessage()));
         }
+        catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "ERROR",
+                    "message", "AI처리 오류: " + e.getMessage()
+            ));
+        }
+        return ResponseEntity.status(500).body(Map.of(
+                "status", "ERROR",
+                "message", "오류"
+        ));
     }
+
+    private JsonNode createConversation() throws JsonProcessingException {
+        String url = BASE_URL + "/conversations";
+        String nowTime = OffsetDateTime.now(ZoneOffset.ofHours(9)).toString();
+        String systemPrompt = """
+                당신은 레스토랑 주문 챗봇입니다.
+                사용자의 대화를 기반으로 주문 정보를 추출하세요.
+                현재 시간은 %s(한국시간)입니다. 시간을 말할 때는 "N월 N일 N시" 형식으로 말하세요.
+                디너의 종류와 기본 세트 구성은 다음과 같습니다:
+                  - VALENTINE: wine 1, steak 1
+                  - FRENCH: coffee_cup 1, wine 1, salad 1, steak 1
+                  - ENGLISH: eggscramble 1, bacon 1, bread 1, steak 1
+                  - CHAMPAGNE: champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1
+                
+                알아야 할 정보:
+                  - 디너 종류 = menu (VALENTINE, FRENCH, ENGLISH, CHAMPAGNE 중 하나)
+                  - 서빙 스타일 = style (SIMPLE, GRAND, DELUXE 중 하나)
+                  - 메뉴 구성 = items (wine, steak, coffe_cup, coffee_pot, salad, eggscramble, bacon, bread, baguette, champagne의 각 수량)
+                  - 배달 주소 = delivery_address
+                  - 카드번호 = card_number
+                  - 예약 시간 = reservation_time
+                
+                규칙:
+                  - CHAMPAGNE 디너는 SIMPLE 스타일로 주문할 수 없습니다.
+                  - 주문이 완료되지 않았으면 빠진 정보를 유도하세요.
+                  - 항상 주문에 변경사항이 없는지 사용자에게 되물어보세요. 전체 대화에서 적어도 한 번은 물어봐야 합니다.
+                  - 정보가 아직 채워지지 않았다면 status에 "CONTINUE"와 함께 "message"에 대화를 이어가세요.
+                  - 모든 정보가 채워지면 status엔 "DONE"과 함께 "message"에 주문을 요약하는 문장을 반환하세요.
+                    디너 종류, 예약시간, 서빙 스타일, 변경사항, 배달주소, 카드번호가 포함되어야 합니다.
+                
+                대화 예시:
+                고객: 맛있는 디너 추천해주세요.
+                시스템: 무슨 기념일인가요?
+                고객: 내일이 어머님 생신이에요 / 모레가 어머님 생신이에요
+                시스템: 정말 축하드려요. 프렌치 디너 또는 샴페인 축제 디너는 어떠세요?
+                고객: 샴페인 축제 디너 좋겠어요.
+                시스템: 샴페인 축제 디너 알겠습니다. 그리고 서빙은 디럭스 스타일 어떨까요?
+                고객: 네, 디럭스 스타일 좋아요.
+                시스템: 네, OOO 고객님, 디너는 샴페인 축제 디너, 서빙은 디럭스 스타일로 주문하셨습니다.
+                고객: 그리고 바케트빵을 6개로, 샴페인을 2병으로 변경해요.
+                시스템: 네, OOO 고객님, 디너는 샴페인 축제 디너, 서빙은 디럭스 스타일, 바케트빵 6개, 샴페인 2병 주문하셨습니다.
+                고객: 맞아요.
+                시스템: 추가로 필요하신 것 있으세요?
+                고객: 없어요.
+                시스템: 12월2일/12월3일에 주문하신대로 보내드리겠습니다. 감사합니다.
+                """.formatted(nowTime);
+
+        Map<String, Object> body = Map.of(
+                "items", List.of(Map.of("role", "system", "content", systemPrompt))
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(openaiApiKey);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+
+        return objectMapper.readTree(response.getBody());
+    }
+
+    private JsonNode createResponse(String conversationId, String userInput) throws JsonProcessingException {
+        String url = BASE_URL + "/responses";
+
+        // 응답 생성
+        Map<String, Object> body = Map.of(
+                "model", "gpt-4.1-mini",
+                "conversation", conversationId,
+                "input", userInput,
+                "temperature", 0.2,
+                "text", Map.of(
+                        "format", Map.of(
+                                "type", "json_schema",
+                                "name", "responseSchema",
+                                "schema", Map.of(
+                                        "type", "object",
+                                        "properties", Map.of(
+                                                "status", Map.of("type", "string", "enum", List.of("CONTINUE", "DONE")),
+                                                "message", Map.of("type", "string")
+                                        ),
+                                        "required", List.of("status", "message"),
+                                        "additionalProperties", false
+                                ),
+                                "strict", true
+                        )
+                )
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(openaiApiKey);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+
+        return objectMapper.readTree(response.getBody());
+    }
+
+    private void deleteConversation(String conversationId) {
+        String url = BASE_URL + "/conversations/" + conversationId;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(openaiApiKey);
+
+        restTemplate.exchange(url, HttpMethod.DELETE, new HttpEntity<>(headers), String.class);
+    }
+
+    private JsonNode createJsonOrder(String conversationId) throws JsonProcessingException {
+        String url = BASE_URL + "/responses";
+
+        // 반환될 JSON schema 지정
+        Map<String, Object> aiOrderSchema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "menu", Map.of(
+                                "type", "string",
+                                "enum", List.of("VALENTINE", "FRENCH", "ENGLISH", "CHAMPAGNE")
+                        ),
+                        "style", Map.of(
+                                "type", "string",
+                                "enum", List.of("SIMPLE", "GRAND", "DELUXE")
+                        ),
+                        "items", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                        "wine", Map.of("type", "integer"),
+                                        "steak", Map.of("type", "integer"),
+                                        "coffe_cup", Map.of("type", "integer"),
+                                        "coffee_pot", Map.of("type", "integer"),
+                                        "salad", Map.of("type", "integer"),
+                                        "eggscramble", Map.of("type", "integer"),
+                                        "bacon", Map.of("type", "integer"),
+                                        "bread", Map.of("type", "integer"),
+                                        "baguette", Map.of("type", "integer"),
+                                        "champagne", Map.of("type", "integer")
+                                ),
+                                "required", List.of(
+                                        "wine", "steak", "coffe_cup", "coffee_pot", "salad",
+                                        "eggscramble", "bacon", "bread", "baguette", "champagne"
+                                ),
+                                "strict", true,
+                                "additionalProperties", false
+                        ),
+                        "deliveryAddress", Map.of("type", "string"),
+                        "cardNumber", Map.of("type", "string"),
+                        "reservationTime", Map.of("type", "string")
+                ),
+                "required", List.of(
+                        "menu", "style", "items",
+                        "deliveryAddress", "cardNumber", "reservationTime"
+                ),
+                "strict", true,
+                "additionalProperties", false
+        );
+
+        // 응답 생성
+        Map<String, Object> body = Map.of(
+                "model", "gpt-4.1-mini",
+                "conversation", conversationId,
+                "input", List.of(
+                        Map.of(
+                                "role", "system",
+                                "content", "당신은 레스토랑 주문 파서입니다. 이전 대화 전체를 바탕으로 최종 주문 정보를 Schema에 맞게 정확히 출력하세요."
+                        )
+                ),
+                "temperature", 0.2,
+                "text", Map.of(
+                        "format", Map.of(
+                                "type", "json_schema",
+                                "name", "aiOrderSchema",
+                                "schema", aiOrderSchema,
+                                "strict", true
+                        )
+                )
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(openaiApiKey);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+
+        return objectMapper.readTree(response.getBody());
+    }
+
 }

@@ -34,7 +34,7 @@ public class StaffController {
     @GetMapping("/staff")
     public String showStaffInterface(HttpSession session) {
         Object staff = session.getAttribute("loggedInStaff");
-        if (staff != null) { // 이미 staff session이 있으면 바로 role애 맞는 화면으로
+        if (staff != null) { // 이미 staff session이 있으면 바로 role에 맞는 화면으로
             return "redirect:/staff/" + ((StaffSessionDTO) staff).getPosition();
         }
         return "staff/staff";
@@ -140,7 +140,7 @@ public class StaffController {
         model.addAttribute("inventoryList", inventoryService.findAllInventory());
         return "staff/inventory";
     }
-    // TODO: 한 번 increase요청하면 "수량선택"이 다시 1로 세팅되는 문제 w. inventory.html
+
     @PostMapping("/staff/inventory/increase")
     public String increaseStock(@RequestParam Long itemId,
                                 @RequestParam int amount) {
