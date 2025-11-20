@@ -211,9 +211,16 @@
             <button type="button" id="voiceBtn" class="voiceBtn">음성인식</button>
             <label for="voiceText">인식된 주문</label>
             <textarea id="voiceText" placeholder="음성 인식 결과가 여기에 표시됩니다" rows="4" cols="50" class="voicetext"></textarea>
-            <button type="submit" id="applyVoiceBtn" class="applyVoiceBtn">적용</button>
+            <button type="submit" id="applyVoiceBtn" class="applyVoiceBtn">보내기</button>
         </form>
         <p id="voiceMessage" class="voiceMsg"></p>
+    </section>
+    <!-- 채팅 구역 -->
+    <section>
+        <h2>채팅 내용</h2>
+        <div id="chatContainer" class="chat-container">
+            <!-- JS에서 채팅 append됨 -->
+        </div>
     </section>
 </main>
 <script th:src="@{/js/orderForm.js}"></script>

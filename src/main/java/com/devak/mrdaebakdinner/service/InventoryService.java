@@ -32,7 +32,7 @@ public class InventoryService {
     public void decreaseCount(Long itemId, int amount) {
         InventoryEntity inventoryEntity = inventoryRepository.findByItemId(itemId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 item입니다."));
-        inventoryEntity.setStockQuantity(inventoryEntity.getStockQuantity() - amount);
+        inventoryEntity.setStockQuantity(Math.max(0, inventoryEntity.getStockQuantity() - amount));
         inventoryRepository.save(inventoryEntity);
     }
 }

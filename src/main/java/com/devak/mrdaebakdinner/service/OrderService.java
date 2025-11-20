@@ -150,7 +150,7 @@ public class OrderService {
             throw new InsufficientInventoryException("재고가 부족합니다", insufficientItems);
         }
 
-        // VIP였다면 totalPrice 10퍼센트 할인
+        // 할인 규칙 적용: VIP였다면 totalPrice 10퍼센트 할인
         if (customerEntity.getMembershipLevel().equals("VIP")) {
             totalPrice = ((int) (totalPrice * 0.9)) / 10 * 10;
         }
