@@ -29,7 +29,7 @@ public class AiOrderService {
     private final String BASE_URL = "http://host.docker.internal:11434";
 
     // MODEL 이름
-    private final String MODEL = "qwen3:0.6b";
+    private final String MODEL = "gemma2:9b";
 
     // Controller에 의해 호출
     public Map<String, Object> processUserMessage(String userInput, String userId) throws JsonProcessingException {
@@ -46,53 +46,64 @@ public class AiOrderService {
             history = new ArrayList<>();
             String nowTime = OffsetDateTime.now(ZoneOffset.ofHours(9))
                     .format(DateTimeFormatter.ofPattern("yyyy년 M월 d일 H시"));
+            // processUserMessage 메서드 내부에 추가해야 할 핵심 코드:
+            conversationMap.put(userId, history);
             String SYSTEM_PROMPT = """
-                    당신은 레스토랑 주문 챗봇입니다.
-                    사용자의 대화를 기반으로 주문 정보를 추출하세요.
-                    현재 시간은 %s(한국시간)입니다. 시간을 말할 때는 "N월 N일 N시" 형식으로 말하세요.
-                    디너의 종류와 기본 세트 구성은 다음과 같습니다:
-                      - VALENTINE: wine 1, steak 1
-                      - FRENCH: coffee_cup 1, wine 1, salad 1, steak 1
-                      - ENGLISH: eggscramble 1, bacon 1, bread 1, steak 1
-                      - CHAMPAGNE: champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1
+                    당신은 레스토랑 주문 관리 챗봇입니다. 현재 시간은 %s(한국시간)입니다. 시간을 말할 때는 "N월 N일 N시" 형식으로 말하세요.
                     
-                    알아야 할 정보:
-                      - 디너 종류 = menu (VALENTINE, FRENCH, ENGLISH, CHAMPAGNE 중 하나)
-                      - 서빙 스타일 = style (SIMPLE, GRAND, DELUXE 중 하나)
-                      - 메뉴 구성 = items (wine, steak, coffe_cup, coffee_pot, salad, eggscramble, bacon, bread, baguette, champagne의 각 수량)
-                      - 배달 주소 = delivery_address
-                      - 카드번호 = card_number
-                      - 예약 시간 = reservation_time
+                    ## 📋 디너 메뉴 및 구성
+                      - VALENTINE (wine 1, steak 1)
+                      - FRENCH (coffee_cup 1, wine 1, salad 1, steak 1)
+                      - ENGLISH (eggscramble 1, bacon 1, bread 1, steak 1)
+                      - CHAMPAGNE (champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1)
                     
-                    규칙:
-                      - CHAMPAGNE 디너는 SIMPLE 스타일로 주문할 수 없습니다.
-                      - 주문이 완료되지 않았으면 빠진 정보를 유도하세요.
-                      - 전체 대화에서 적어도 한 번은 주문에 변경사항이 없는지 물어보세요.
-                      - 정보가 아직 채워지지 않았다면 status에 "CONTINUE"와 함께 "message"에 대화를 이어가세요.
-                      - 모든 정보가 채워지면 status엔 "DONE"과 함께 "message"에 주문을 요약하는 문장을 반환하세요.
-                        디너 종류, 예약시간, 서빙 스타일, 변경사항, 배달주소, 카드번호가 포함되어야 합니다.
+                    ## 🚨 최우선 행동 규칙: 상태 유지 및 출력 형식
+                    1. **출력 의무:** 당신은 항상 아래 **출력 형식에 맞는 JSON 객체만** 반환해야 합니다. JSON 밖에는 어떤 추가적인 텍스트도 넣지 마세요.
+                    2. **정보 저장:** 이전 대화에서 추출된 주문 정보는 **`extracted_info`** 필드에 저장하고, 정보가 아직 채워지지 않았다면 해당 필드는 반드시 **`null`** 값으로 유지하세요.
+                    3. **상태 유지(최우선 명령):** extracted_info에 이미 저장된 정보는 절대 NULL로 초기화하거나 누락시키지 말고 다음 턴에 그대로 유지해야 합니다. 오직 사용자 요청에 의해 명시적으로 변경되거나 새롭게 채워지는 필드만 수정하세요.
+                    
+                    ## 🔍 필수 정보 필드 (extracted_info에 저장)
+                    - **menu** (string): 디너 종류 (VALENTINE, FRENCH, ENGLISH, CHAMPAGNE 중 하나)
+                    - **style** (string): 서빙 스타일 (SIMPLE, GRAND, DELUXE 중 하나. *CHAMPAGNE은 SIMPLE 불가*)
+                    - **items** (object): 메뉴 구성 (각 항목의 수량. 기본 구성 외 변경 사항만 기록)
+                    - **reservation_time** (string): 예약 시간 (YYYY년 M월 D일 H시)
+                    - **delivery_address** (string): 배달 주소
+                    - **card_number** (string): 카드번호
+                    
+                    ## 💬 대화 진행 규칙
+                    1. 항상 한국어로 답변 및 질문하세요.
+                    2. **우선 순위:** 주문 정보는 'menu' -> 'style' -> 'reservation_time' 순서로 유도하세요. 
+                    3. **추천 및 확정:** 메뉴 혹은 스타일을 추천했을 경우, 추천 근거를 설명하며, 사용자가 동의하면 **즉시 해당 메뉴나 스타일로 'menu'나 'style'필드를 확정**하고 다음 정보 유도로 넘어갑니다.
+                    4. **변경사항 확인:** 전체 대화 과정 중 적어도 한 번은 주문에 변경사항이 없는지 사용자에게 물어보세요.
+                    5. **주문 완료:** 모든 필수 정보가 채워지면 **status를 "DONE"으로 설정**하고, message에 주문 요약 문장을 반환하세요.
+                    6. **주문 진행:** 정보가 부족하면 **status는 "CONTINUE"**를 유지하고, message에 빠진 정보를 유도하는 대화 내용을 반환하세요.
+                    
+                    ## 🚨 출력 형식 (필수)
                       - 출력은 반드시 아래 JSON 형식으로만 반환하세요.
                         {
-                          "status": "CONTINUE or DONE",
-                          "message": "..."
+                          "status": "CONTINUE 또는 DONE",
+                          "message": "사용자에게 보여줄 답변 및 질문 내용",
+                          "extracted_info": {
+                            "menu": "VALENTINE" 또는 "FRENCH" 또는 "ENGLISH" 또는 "CHAMPAGNE",
+                            "style": "SIMPLE" 또는 "GRAND" 또는 "DELUXE" ,
+                            "items": {
+                              "wine": 0,
+                              "steak": 0,
+                              "coffe_cup": 0,
+                              "coffee_pot": 0,
+                              "salad": 0,
+                              "eggscramble": 0,
+                              "bacon": 0,
+                              "bread": 0,
+                              "baguette": 0,
+                              "champagne": 0
+                            },
+                            "reservation_time": "YYYY년 M월 D일 H시" 또는 null,
+                            "delivery_address": "배달 주소" 또는 null,
+                            "card_number": "카드 번호" 또는 null
+                          }
                         }
-                    
-                    대화 예시:
-                    고객: 맛있는 디너 추천해주세요.
-                    시스템: 무슨 기념일인가요?
-                    고객: 내일이 어머님 생신이에요 / 모레가 어머님 생신이에요
-                    시스템: 정말 축하드려요. 프렌치 디너 또는 샴페인 축제 디너는 어떠세요?
-                    고객: 샴페인 축제 디너 좋겠어요.
-                    시스템: 샴페인 축제 디너 알겠습니다. 그리고 서빙은 디럭스 스타일 어떨까요?
-                    고객: 네, 디럭스 스타일 좋아요.
-                    시스템: 네, OOO 고객님, 디너는 샴페인 축제 디너, 서빙은 디럭스 스타일로 주문하셨습니다.
-                    고객: 그리고 바케트빵을 6개로, 샴페인을 2병으로 변경해요.
-                    시스템: 네, OOO 고객님, 디너는 샴페인 축제 디너, 서빙은 디럭스 스타일, 바케트빵 6개, 샴페인 2병 주문하셨습니다.
-                    고객: 맞아요.
-                    시스템: 추가로 필요하신 것 있으세요?
-                    고객: 없어요.
-                    시스템: 12월2일/12월3일에 주문하신대로 보내드리겠습니다. 감사합니다.
-                    """.formatted(nowTime);
+                """.formatted(nowTime);
             history.add(Map.of(
                     "role", "system",
                     "content", SYSTEM_PROMPT
@@ -107,9 +118,10 @@ public class AiOrderService {
         JsonNode responseNode = createResponse(history, userInput);
         String jsonText = responseNode.path("message").path("content").asText();
         System.out.println("의심구간: jsonText = " + jsonText); // for debug
-        String status = objectMapper.readTree(jsonText).get("status").asText();
+        JsonNode parsedJson = objectMapper.readTree(jsonText);
+        String status = parsedJson.get("status").asText();
         System.out.println("의심구간: status = " + status); // for debug
-        String message = objectMapper.readTree(jsonText).get("message").asText();
+        String message = parsedJson.get("message").asText();
         System.out.println("의심구간: message = " + message); // for debug
 
         System.out.println("파싱됨: jsonText =" + jsonText); // for debug
@@ -122,7 +134,7 @@ public class AiOrderService {
                 "content", userInput));
         history.add(Map.of(
                 "role", "assistant",
-                "content", message));
+                "content", jsonText));
 
         // "DONE"을 반환했을 때 -> 지금까지 대화 바탕 주문 추출
         if ("DONE".equalsIgnoreCase(status)) {
@@ -184,12 +196,16 @@ public class AiOrderService {
                         "type", "object",
                         "properties", Map.of(
                                 "status", Map.of("type", "string", "enum", List.of("CONTINUE", "DONE")),
-                                "message", Map.of("type", "string")
+                                "message", Map.of("type", "string"),
+                                "extracted_info", Map.of("type", "object")
                         ),
-                        "required", List.of("status", "message"),
+                        "required", List.of("status", "message", "extracted_info"),
                         "additionalProperties", false
                 ),
-                "stream", false
+                "stream", false,
+                "options", Map.of(
+                        "temperature", 0.1
+                )
 //                ,"think", false
         );
 
