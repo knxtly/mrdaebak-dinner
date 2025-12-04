@@ -30,7 +30,7 @@ public class AiOrderService {
     private final String BASE_URL;
 
     // MODEL 이름
-    private final String MODEL = "gemma2:9b";
+    private final String MODEL = "gemma3:12b";
 
     public AiOrderService(@Value("${ollama.api.baseurl}") String baseUrl) {
         this.BASE_URL = baseUrl;
@@ -87,6 +87,10 @@ public class AiOrderService {
                 - **delivery_address** (string): 배달 주소
                 - **card_number** (string): 카드번호
                 
+                ## **메뉴 확정 로직:**
+                 a. **메뉴 추천 시:** 사용자가 메뉴를 추천해달라고 요청하거나, 추천된 메뉴에 대해 '응', '좋아', '그걸로 할게' 등의 **긍정적 또는 수락 의사를 표현**하면, LLM은 **추가적인 질문 없이 즉시** 'extracted_info.menu' 필드에 해당 메뉴를 확정해야 합니다.
+                 b. **메뉴 언급 시:** 사용자가 직접 메뉴 이름(예: "VALENTINE으로 할게")을 **언급**했다면, 이는 **확정된 것으로 간주**하고 즉시 'menu' 필드를 채우고 다음 정보 유도로 넘어갑니다.
+                
                 ## 대화 진행 규칙
                 1. 항상 한국어로 답변 및 질문하세요.
                 2. **우선 순위:** 주문 정보는 'menu' -> 'style' -> 'reservation_time' 순서로 유도하세요.
@@ -94,6 +98,12 @@ public class AiOrderService {
                 4. **변경사항 확인:** 전체 대화 과정 중 적어도 한 번은 주문에 변경사항이 없는지 사용자에게 물어보세요.
                 5. **주문 완료:** 모든 필수 정보가 채워지면 **status를 "DONE"으로 설정**하고, message에 주문 요약 문장을 반환하세요. 주문이 완료되면 주문 폼이 채워진 후, 사용자가 '주문 제출' 버튼을 클릭하면 결제됩니다. 
                 6. **주문 진행:** 정보가 부족하면 **status는 "CONTINUE"**를 유지하고, message에 빠진 정보를 유도하는 대화 내용을 반환하세요.
+                
+                ## **Items 필드 업데이트 로직:** 
+                a. **메뉴 확인:** 'extracted_info'의 'menu' 필드(VALENTINE, FRENCH 등)가 확정되었는지 확인합니다.
+                b. **기본 수량 로드:** 'menu'에 해당하는 기본 구성을 로드하여 'extracted_info.items'의 시작점으로 삼아야 합니다. (예: VALENTINE은 {wine: 1, steak: 1}로 시작)
+                c. **사용자 변경 적용:** 사용자가 추가하거나 변경 요청한 품목(예: "커피_잔 2잔")만 기본 수량에 **덮어쓰거나** **추가**합니다.
+                d. **미 언급 항목 유지:** 사용자가 언급하지 않은 다른 기본 품목의 수량은 **절대 0으로 초기화하지 말고** 기본 수량 그대로 유지해야 합니다. (기본 세트 품목은 항상 수량 1 이상으로 유지되어야 함)
                 
                 ## 출력 형식 (필수)
                   - 출력은 반드시 아래 JSON 형식으로만 반환하세요.
