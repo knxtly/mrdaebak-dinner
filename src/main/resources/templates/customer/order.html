@@ -32,6 +32,7 @@
     <form id="orderForm" th:action="@{/customer/orders/new}" th:object="${orderDTO}" method="post"
           autocomplete="off"
           class="order-form-container">
+        <input type="hidden" id="isReorder" th:value="${orderDTO.dinnerStyle != null}">
         <!-- 에러 메시지 -->
         <div th:if="${orderErrMsg}">
             <p th:utext="${orderErrMsg}" class="error-message"></p>

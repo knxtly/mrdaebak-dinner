@@ -45,8 +45,11 @@
     // 메뉴 선택 시 스타일/아이템 초기화 및 기본값 설정
     function updateMenuSelection(selectedValue, applyDefaultItems) {
         // 1. 스타일 옵션과 값 초기화
-        resetStyle();
-        document.querySelector("#styleSimple").checked = true; // 'Simple'을 기본으로 선택
+        const isReorder = document.getElementById("isReorder")?.value === "true";
+        if (!isReorder) {
+            resetStyle();
+            document.querySelector("#styleSimple").checked = true; // 'Simple'을 기본으로 선택
+        }
 
         // 2. CHAMPAGNE 메뉴의 특수 로직: SIMPLE 스타일 비활성화
         if (selectedValue === "CHAMPAGNE") {
