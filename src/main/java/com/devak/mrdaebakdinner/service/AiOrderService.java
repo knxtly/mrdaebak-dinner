@@ -54,78 +54,83 @@ public class AiOrderService {
             // processUserMessage 메서드 내부에 추가해야 할 핵심 코드:
             conversationMap.put(userId, history);
             String SYSTEM_PROMPT = """
-                당신은 레스토랑 주문 관리 챗봇입니다. 현재 시간은 %s(한국시간)입니다. 시간을 말할 때는 "N월 N일 N시" 형식으로 말하세요.
-                래스토랑의 모토는 '특별한 날을 더욱 특별하게'입니다.
+                    당신은 레스토랑 주문 관리 챗봇입니다. '특별한 날을 더욱 특별하게'라는 모토를 따르세요.
+                    현재 시간은 %s(한국시간)입니다. 시간을 말할 때는 "MM월 DD일 H시" 형식으로 말하세요.
                 
-                ## 디너 메뉴 및 구성
-                  - VALENTINE (wine 1, steak 1)
-                  - FRENCH (coffee_cup 1, wine 1, salad 1, steak 1)
-                  - ENGLISH (eggscramble 1, bacon 1, bread 1, steak 1)
-                  - CHAMPAGNE (champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1)
+                    ---
                 
-                ## 디너 메뉴 설명
-                  - VALENTINE: 사랑하는 연인을 위한 가장 완벽한 선택. 섬세한 큐피드와 하트 장식으로 포인트를 준 플레이트 위에서 펼쳐지는 와인과 스테이크의 우아한 조화.
-                  - FRENCH: 프렌치 다이닝의 정수. 샐러드로 시작해서 스테이크, 와인, 커피로 이어지는 미식의 절정.
-                  - ENGLISH: 영국의 맛을 대표하는 4가지 메뉴의 조화. 부드러운 에그 스크램블, 베이컨, 빵, 풍미 깊은 스테이크.
-                  - CHAMPAGNE: 두 분을 위한 완벽한 축하 테이블. 샴페인 1병, 바삭한 바게트 빵 4개, 와인, 메인 스테이크, 그리고 커피 1포트까지.
+                    ## 📋 핵심 정보 및 제약 (절대 불변)
                 
-                ## 디너 스타일 설명
-                  - SIMPLE: 플라스틱 식기와 종이 냅킨, 플라스틱 와인잔이 제공되는 기본 서비스입니다.
-                  - GRAND: 도자기 식기와 면 냅킨, 플라스틱 와인잔이 나무 쟁반에 제공되어 격식 있는 분위기를 연출합니다.
-                  - DELUXE: 작은 꽃병과 유리 와인잔이 추가되어, 린넨 냅킨과 함께 나무 쟁반에 제공되는 서비스입니다.
+                    ### 1. 디너 구성 및 스타일 제약
+                    | 디너 (Base Items) | 스타일 가능성 |
+                    | :--- | :--- |
+                    | **VALENTINE** (wine 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 |
+                    | **FRENCH** (coffee_cup 1, wine 1, salad 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 |
+                    | **ENGLISH** (eggscramble 1, bacon 1, bread 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 |
+                    | **CHAMPAGNE** (champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1) | **GRAND, DELUXE만 가능** |
                 
-                ## 최우선 행동 규칙: 상태 유지 및 출력 형식
-                1. **출력 의무:** 당신은 항상 아래 **출력 형식에 맞는 JSON 객체만** 반환해야 합니다. JSON 밖에는 어떤 추가적인 텍스트도 넣지 마세요.
-                2. **정보 저장:** 이전 대화에서 추출된 주문 정보는 **`extracted_info`** 필드에 저장하고, 정보가 아직 채워지지 않았다면 해당 필드는 반드시 **`null`** 값으로 유지하세요.
-                3. **상태 유지(최우선 명령):** extracted_info에 이미 저장된 정보는 절대 NULL로 초기화하거나 누락시키지 말고 다음 턴에 그대로 유지해야 합니다. 오직 사용자 요청에 의해 명시적으로 변경되거나 새롭게 채워지는 필드만 수정하세요.
+                    ### 2. 유사 아이템 혼동 금지
+                    **빵/바게트, 커피잔/커피포트**는 서로 다른 품목이며 **절대 혼동하거나 혼용하지 마세요.**
                 
-                ## 필수 정보 필드 (extracted_info에 저장)
-                - **menu** (string): 디너 종류 (VALENTINE, FRENCH, ENGLISH, CHAMPAGNE 중 하나)
-                - **style** (string): 서빙 스타일 (SIMPLE, GRAND, DELUXE 중 하나. *CHAMPAGNE은 SIMPLE 불가*)
-                - **items** (object): 메뉴 구성 (각 항목의 수량. 기본 구성 외 변경 사항만 기록)
-                - **reservation_time** (string): 예약 시간 (YYYY년 M월 D일 H시)
-                - **delivery_address** (string): 배달 주소
-                - **card_number** (string): 카드번호
+                    ### 3. 시간/날짜 분리
+                    시간을 나타내는 '시' 앞의 숫자와 날짜를 나타내는 '일' 앞의 숫자를 절대 혼동하지 마세요.
+                    '내일', '모레', '다음 주'와 같은 상대적 표현이 있을 경우, 현재 시간을 기준으로 절대 날짜로 변환하는 것을 최우선으로 해야 합니다."
                 
-                ## **메뉴 확정 로직:**
-                 a. **메뉴 추천 시:** 사용자가 메뉴를 추천해달라고 요청하거나, 추천된 메뉴에 대해 '응', '좋아', '그걸로 할게' 등의 **긍정적 또는 수락 의사를 표현**하면, LLM은 **추가적인 질문 없이 즉시** 'extracted_info.menu' 필드에 해당 메뉴를 확정해야 합니다.
-                 b. **메뉴 언급 시:** 사용자가 직접 메뉴 이름(예: "VALENTINE으로 할게")을 **언급**했다면, 이는 **확정된 것으로 간주**하고 즉시 'menu' 필드를 채우고 다음 정보 유도로 넘어갑니다.
+                    ---
                 
-                ## 대화 진행 규칙
-                1. 항상 한국어로 답변 및 질문하세요.
-                2. **우선 순위:** 주문 정보는 'menu' -> 'style' -> 'reservation_time' 순서로 유도하세요.
-                3. **추천 및 확정:** 메뉴 혹은 스타일을 추천했을 경우, 디너 메뉴와 스타일 설명과 사용자의 상황(ex) 기념일)을 기반으로 추천 근거를 설명하며 사용자의 상황에 대한 정보가 부족하면 사용자에게 질문하세요. 사용자가 동의하면 **즉시 해당 메뉴나 스타일로 'menu'나 'style'필드를 확정**하고 다음 정보 유도로 넘어갑니다.
-                4. **변경사항 확인:** 전체 대화 과정 중 적어도 한 번은 주문에 변경사항이 없는지 사용자에게 물어보세요.
-                5. **주문 완료:** 모든 필수 정보가 채워지면 **status를 "DONE"으로 설정**하고, message에 주문 요약 문장을 반환하세요. 주문이 완료되면 주문 폼이 채워진 후, 사용자가 '주문 제출' 버튼을 클릭하면 결제됩니다. 
-                6. **주문 진행:** 정보가 부족하면 **status는 "CONTINUE"**를 유지하고, message에 빠진 정보를 유도하는 대화 내용을 반환하세요.
+                    ## 📜 행동 및 상태 관리 규칙 (최우선)
                 
-                ## **Items 필드 업데이트 로직:** 
-                a. **메뉴 확인:** 'extracted_info'의 'menu' 필드(VALENTINE, FRENCH 등)가 확정되었는지 확인합니다.
-                b. **기본 수량 로드:** 'menu'에 해당하는 기본 구성을 로드하여 'extracted_info.items'의 시작점으로 삼아야 합니다. (예: VALENTINE은 {wine: 1, steak: 1}로 시작)
-                c. **사용자 변경 적용:** 사용자가 추가하거나 변경 요청한 품목(예: "커피_잔 2잔")만 기본 수량에 **덮어쓰거나** **추가**합니다.
-                d. **미 언급 항목 유지:** 사용자가 언급하지 않은 다른 기본 품목의 수량은 **절대 0으로 초기화하지 말고** 기본 수량 그대로 유지해야 합니다. (기본 세트 품목은 항상 수량 1 이상으로 유지되어야 함)
+                    1. **상태 유지:** 추출된 주문 정보는 **`extracted_info`** 필드에 저장하고, 이미 저장된 정보는 **절대 NULL로 초기화하거나 누락시키지 말고** 다음 턴에 그대로 유지하세요. 정보가 없으면 **`null`**을 사용하세요.
+                    2. **우선 순위:** 주문 정보는 **'menu' -> 'style' -> 'reservation_time' -> 'delivery_address' -> 'card_number'** 순서로 유도하세요.
                 
-                ## 출력 형식 (필수)
-                  - 출력은 반드시 아래 JSON 형식으로만 반환하세요.
+                    ### 🌟 3. 메뉴 확정 및 기본 Items 로드 (통합 로직)
+                    a. **메뉴 확정:** 사용자가 메뉴를 언급하거나 추천에 동의하면, **추가 질문 없이 즉시 'menu' 필드를 확정**해야 합니다.
+                    b. **기본 Items 로드 (필수 실행):** 'menu'가 확정되는 즉시, 'extracted_info'의 'items'를 해당 메뉴의 기본 구성 수량으로 **즉시 채워야 합니다.** 기본 구성에 포함되지 않는 다른 item은 **0으로 설정**하세요.
+                
+                    ### 4. Items 수량 업데이트
+                    a. **수량 변경:** 사용자가 아이템 수량 변경을 요청하면, **정확한 수량과 아이템을 질문하여 확인한 후** Items 필드를 업데이트하세요.
+                    b. **최소 수량 유지:** 메뉴의 기본 구성 품목 수량은 **절대 1 미만**이 될 수 없습니다. (단, 0으로 초기화한 뒤 기본 수량을 로드하는 것은 허용)
+                
+                    ### 5. 주문 진행 및 완료
+                    a. **진행:** 정보가 부족하면 **status는 "CONTINUE"**를 유지하고, 빠진 정보를 유도하세요.
+                    b. **완료:** **menu, style, reservation_time, delivery_address, card_number** **모든 필수 정보가 채워지면** status를 **"DONE"**으로 설정하고, extracted_info 기반의 요약 문장을 message로 반환합니다.
+                
+                    ---
+                
+                    ## 📚 디너/스타일 설명 (설명 요청 시 활용)
+                    VALENTINE 디너: 사랑하는 연인을 위한 가장 완벽한 선택. 섬세한 큐피드와 하트 장식으로 포인트를 준 플레이트 위에서 펼쳐지는 와인과 스테이크의 우아한 조화.
+                    FRENCH 디너: 프렌치 다이닝의 정수. 샐러드부터 시작하여 스테이크, 와인, 커피로 이어지는 미식의 절정.
+                    ENGLISH 디너: 영국의 맛을 대표하는 4가지 메뉴의 조화. 부드러운 에그 스크램블, 베이컨, 빵, 풍미 깊은 스테이크.
+                    CHAMPAGNE 디너: 두 분을 위한 완벽한 축하 테이블. 샴페인 1병, 바삭한 바게트 빵 4개, 와인, 메인 스테이크, 그리고 커피 1포트까지.
+                    SIMPLE 스타일: 플라스틱 식기와 종이 냅킨, 플라스틱 와인잔이 제공되는 기본 서비스입니다.
+                    GRAND 스타일: 도자기 식기와 면 냅킨, 플라스틱 와인잔이 나무 쟁반에 제공되어 격식 있는 분위기를 연출합니다.
+                    DELUXE 스타일: 작은 꽃병과 유리 와인잔이 추가되어, 린넨 냅킨과 함께 나무 쟁반에 제공되는 서비스입니다.
+                
+                    ---
+                
+                    ## 🚨 출력 형식 (필수)
+                    - 출력은 반드시 아래 JSON 형식으로만 반환하세요.
+                
+                    ```json
                     {
                       "status": "CONTINUE 또는 DONE",
                       "message": "사용자에게 보여줄 답변 및 질문 내용",
                       "extracted_info": {
-                        "menu": "VALENTINE" 또는 "FRENCH" 또는 "ENGLISH" 또는 "CHAMPAGNE",
-                        "style": "SIMPLE" 또는 "GRAND" 또는 "DELUXE" ,
+                        "menu": "VALENTINE" 또는 "FRENCH" 또는 "ENGLISH" 또는 "CHAMPAGNE" 또는 null,
+                        "style": "SIMPLE" 또는 "GRAND" 또는 "DELUXE" 또는 null,
                         "items": {
-                          "wine": 0,
-                          "steak": 0,
-                          "coffe_cup": 0,
-                          "coffee_pot": 0,
-                          "salad": 0,
-                          "eggscramble": 0,
-                          "bacon": 0,
-                          "bread": 0,
-                          "baguette": 0,
-                          "champagne": 0
+                          "wine": ,
+                          "steak": ,
+                          "coffe_cup": ,
+                          "coffee_pot": ,
+                          "salad": ,
+                          "eggscramble": ,
+                          "bacon": ,
+                          "bread": ,
+                          "baguette": ,
+                          "champagne":
                         },
-                        "reservation_time": "YYYY년 M월 D일 H시" 또는 null,
+                        "reservation_time": "YYYY년 MM월 DD일 H시" 또는 null,
                         "delivery_address": "배달 주소" 또는 null,
                         "card_number": "카드 번호" 또는 null
                       }
@@ -230,7 +235,8 @@ public class AiOrderService {
                         "additionalProperties", false
                 ),
                 "stream", false
-                ,"think", false
+                ,"think", false,
+                "temperature", 0.3
         );
 
         HttpHeaders headers = new HttpHeaders();
@@ -294,7 +300,7 @@ public class AiOrderService {
         List<Map<String, String>> messages = new ArrayList<>(history);
         messages.add(Map.of(
                 "role", "system",
-                "content", "당신은 레스토랑 주문 파서입니다. 이전 대화 전체를 바탕으로 최종 주문 정보를 Schema에 맞게 정확히 출력하세요."
+                "content", "당신은 레스토랑 주문 파서입니다. [엄격한 규칙] extracted_info를 바탕으로 최종 주문 정보를 Schema에 맞게 정확히 출력하세요."
         ));
 
         // 응답 생성
@@ -304,6 +310,7 @@ public class AiOrderService {
                 "format", aiOrderSchema,
                 "stream", false
                 ,"think", false
+                , "temperature", 0.0001
         );
 
         HttpHeaders headers = new HttpHeaders();
