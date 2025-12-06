@@ -65,12 +65,13 @@ public class AiOrderService {
                     | 디너 (Base Items) | 스타일 가능성 |
                     | :--- | :--- |
                     | **VALENTINE** (wine 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 |
-                    | **FRENCH** (coffee_cup 1, wine 1, salad 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 |
+                    | **FRENCH** (coffee_cup 1, wine 1, salad 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 | [주의] coffee_pot이 아닌 coffee_cup이 기본 메뉴 구성임.
                     | **ENGLISH** (eggscramble 1, bacon 1, bread 1, steak 1) | SIMPLE, GRAND, DELUXE 가능 |
-                    | **CHAMPAGNE** (champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1) | **GRAND, DELUXE만 가능** |
+                    | **CHAMPAGNE** (champagne 1, baguette 4, coffee_pot 1, wine 1, steak 1) | **GRAND, DELUXE만 가능** | [주의] coffee_cup이 아닌 coffee_pot이 기본 메뉴 구성임. [엄격한 규칙] 고객이 SIMPLE 스타일 요청 시 SIMPLE 스타일은 불가하다고 전달.
                 
                     ### 2. 유사 아이템 혼동 금지
-                    **빵/바게트, 커피잔/커피포트**는 서로 다른 품목이며 **절대 혼동하거나 혼용하지 마세요.**
+                    **빵(bread)/바게트(baguette), 커피잔(coffee_cup)/커피포트(coffee_pot), 샴페인(champagne)/와인(wine)**는 서로 다른 품목이며 **절대 혼동하거나 혼용하지 마세요.**
+                    혼동 시에는 사용자에게 재질문을 통해 정확한 아이템과 정확한 수량을 확인하세요.
                 
                     ### 3. 시간/날짜 분리
                     시간을 나타내는 '시' 앞의 숫자와 날짜를 나타내는 '일' 앞의 숫자를 절대 혼동하지 마세요.
@@ -90,6 +91,7 @@ public class AiOrderService {
                     ### 4. Items 수량 업데이트
                     a. **수량 변경:** 사용자가 아이템 수량 변경을 요청하면, **정확한 수량과 아이템을 질문하여 확인한 후** Items 필드를 업데이트하세요.
                     b. **최소 수량 유지:** 메뉴의 기본 구성 품목 수량은 **절대 1 미만**이 될 수 없습니다. (단, 0으로 초기화한 뒤 기본 수량을 로드하는 것은 허용)
+                    c. **다중 요청 처리 규칙:** 사용자가 "A와 B 하나씩 추가"와 같이 두 개 이상의 아이템을 한 문장에서 요청하면, 각 아이템에 수량이 정확하게 매칭되었는지 검토하세요.
                 
                     ### 5. 주문 진행 및 완료
                     a. **진행:** 정보가 부족하면 **status는 "CONTINUE"**를 유지하고, 빠진 정보를 유도하세요.
@@ -121,7 +123,7 @@ public class AiOrderService {
                         "items": {
                           "wine": ,
                           "steak": ,
-                          "coffe_cup": ,
+                          "coffee_cup": ,
                           "coffee_pot": ,
                           "salad": ,
                           "eggscramble": ,
@@ -270,7 +272,7 @@ public class AiOrderService {
                                 "properties", Map.of(
                                         "wine", Map.of("type", "integer"),
                                         "steak", Map.of("type", "integer"),
-                                        "coffe_cup", Map.of("type", "integer"),
+                                        "coffee_cup", Map.of("type", "integer"),
                                         "coffee_pot", Map.of("type", "integer"),
                                         "salad", Map.of("type", "integer"),
                                         "eggscramble", Map.of("type", "integer"),
@@ -310,7 +312,7 @@ public class AiOrderService {
                 "format", aiOrderSchema,
                 "stream", false
                 ,"think", false
-                , "temperature", 0.0001
+                , "temperature", 0.0001 // 창의성 제한
         );
 
         HttpHeaders headers = new HttpHeaders();
@@ -318,6 +320,9 @@ public class AiOrderService {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
         ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+
+        String llmResponseJsonString = response.getBody(); // for debug
+        System.out.println("DEBUG: createJsonOrder LLM 원본 응답 JSON (items 포함):\n" + llmResponseJsonString); // for debug
 
         return objectMapper.readTree(response.getBody());
     }
